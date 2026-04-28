@@ -29,6 +29,7 @@ dist/
 
 # Dataset outputs
 data/
+data_output/
 export_sync/
 data_xtrem1/
 

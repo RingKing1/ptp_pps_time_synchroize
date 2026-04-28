@@ -44,8 +44,4 @@ install(TARGETS sync_export_node
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch)
 
-# 安装 config 文件
-install(DIRECTORY config/
-  DESTINATION share/${PROJECT_NAME}/config)
-
 ament_package()
