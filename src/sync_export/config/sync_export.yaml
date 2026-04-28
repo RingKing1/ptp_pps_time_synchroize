@@ -1,0 +1,5 @@
+sync_export_node:
+  ros__parameters:
+    output_dir: "export_sync"
+    queue_size: 20
+
