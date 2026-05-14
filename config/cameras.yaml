@@ -1,0 +1,33 @@
+# 6 路相机映射配置：topic -> 数据闭环平台规范命名
+# 同时被 convert_calibration.py 与 sync_export_node 读取，是真源。
+# 若要新增/删除/重命名相机，仅修改本文件。
+cameras:
+  - name: camera_0_front100
+    topic: /cam5/compressed
+    intrinsic_file: camera_1_front100.json
+    extrinsic_file: extrinsics_LDR_CENTER_to_cam_front.txt
+
+  - name: camera_3_left_front
+    topic: /cam2/compressed
+    intrinsic_file: camera_2_left_front.json
+    extrinsic_file: extrinsics_LDR_CENTER_to_cam_left_front.txt
+
+  - name: camera_4_right_front
+    topic: /cam1/compressed
+    intrinsic_file: camera_3_right_front.json
+    extrinsic_file: extrinsics_LDR_CENTER_to_cam_right_front.txt
+
+  - name: camera_5_back
+    topic: /cam4/compressed
+    intrinsic_file: camera_4_back.json
+    extrinsic_file: extrinsics_LDR_CENTER_to_cam_back.txt
+
+  - name: camera_6_left_back
+    topic: /cam3/compressed
+    intrinsic_file: camera_5_left_back.json
+    extrinsic_file: extrinsics_LDR_CENTER_to_cam_left_back.txt
+
+  - name: camera_7_right_back
+    topic: /cam0/compressed
+    intrinsic_file: camera_6_right_back.json
+    extrinsic_file: extrinsics_LDR_CENTER_to_cam_right_back.txt

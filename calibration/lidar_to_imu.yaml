@@ -1,0 +1,16 @@
+# Lidar -> IMU 外参占位模板（identity）
+# 请填入真实数值后，由 convert_calibration.py 转写为规范要求的
+# <output>/calib/lidar/Lidarbase_to_IMU.yaml
+translation:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+quaternion:
+  qw: 1.0
+  qx: 0.0
+  qy: 0.0
+  qz: 0.0
+euler_angle:
+  roll: 0.0
+  pitch: 0.0
+  yaw: 0.0

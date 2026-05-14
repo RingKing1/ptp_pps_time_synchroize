@@ -1,0 +1,13 @@
+# LiDAR to Camera Extrinsics: LDR_CENTER -> cam_right_front
+T_lidar_to_camera:
+  -0.830775, -0.549346, 0.089620, 0.604580
+  -0.075182, -0.048785, -0.995976, -0.854405
+  0.551508, -0.834169, -0.000771, -1.647655
+  0.000000, 0.000000, 0.000000, 1.000000
+
+Euler angles (ZYX, deg): [Yaw: 5.170986, Pitch: -146.529495, Roll: 89.946999]
+Translation (m): [0.604580, -0.854405, -1.647655]
+Matched pairs: 17
+RMSE (m): 0.011825
+Reprojection pairs: 17
+Reprojection RMSE (px): 3.494337
