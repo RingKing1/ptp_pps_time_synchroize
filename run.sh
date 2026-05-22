@@ -81,6 +81,11 @@ if ! ros2 interface show autoware_localization_msgs/msg/KinematicState &> /dev/n
     echo "  source install/setup.bash"
     exit 1
 fi
+if ! ros2 interface show beidou_ins_driver/msg/Inspva &> /dev/null; then
+    echo "Error: beidou_ins_driver/msg/Inspva 消息定义未找到。"
+    echo "请先编译工作空间并 source install/setup.bash:"
+    exit 1
+fi
 
 if [ ! -d "${SCRIPT_DIR}/${BAG_PATH}" ] && [ ! -d "${BAG_PATH}" ]; then
     echo "Error: Rosbag path not found: ${BAG_PATH}"

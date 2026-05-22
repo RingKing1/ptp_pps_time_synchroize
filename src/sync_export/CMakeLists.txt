@@ -14,6 +14,7 @@ find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED COMPONENTS io)
 find_package(pcl_conversions REQUIRED)
 find_package(autoware_localization_msgs REQUIRED)
+find_package(beidou_ins_driver REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(SQLite3 REQUIRED)
 
@@ -26,6 +27,7 @@ ament_target_dependencies(sync_export_node
   cv_bridge
   pcl_conversions
   autoware_localization_msgs
+  beidou_ins_driver
 )
 
 target_include_directories(sync_export_node PUBLIC

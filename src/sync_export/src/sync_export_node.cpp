@@ -2,6 +2,7 @@
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <autoware_localization_msgs/msg/kinematic_state.hpp>
+#include <beidou_ins_driver/msg/inspva.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
@@ -16,6 +17,9 @@
 #include <sstream>
 #include <iomanip>
 #include <array>
+#include <deque>
+#include <mutex>
+#include <limits>
 
 namespace fs = std::filesystem;
 
@@ -73,6 +77,7 @@ public:
         this->declare_parameter<int>("max_sync_frames", 0);
         this->declare_parameter<std::string>("lidar_topic", "/rslidar_points");
         this->declare_parameter<std::string>("kinematic_state_topic", "/localization/kinematicstate");
+        this->declare_parameter<std::string>("inspva_topic", "/beidou/inspva");
 
         this->get_parameter("output_dir", output_dir_);
         std::string cameras_config;
@@ -82,6 +87,7 @@ public:
         max_sync_frames_ = this->get_parameter("max_sync_frames").as_int();
         std::string lidar_topic = this->get_parameter("lidar_topic").as_string();
         std::string ks_topic = this->get_parameter("kinematic_state_topic").as_string();
+        std::string inspva_topic = this->get_parameter("inspva_topic").as_string();
 
         if (cameras_config.empty() || calib_dir_.empty()) {
             RCLCPP_FATAL(this->get_logger(),
@@ -121,6 +127,11 @@ public:
         ins_sub_ = this->create_subscription<autoware_localization_msgs::msg::KinematicState>(
             ks_topic, rclcpp::SensorDataQoS().keep_last(200),
             std::bind(&SyncExportNode::on_kinematic_state_for_ins, this, std::placeholders::_1));
+
+        // inspva 独立订阅，用于提供 WGS84 经纬高
+        inspva_sub_ = this->create_subscription<beidou_ins_driver::msg::Inspva>(
+            inspva_topic, rclcpp::SensorDataQoS().keep_last(200),
+            std::bind(&SyncExportNode::on_inspva, this, std::placeholders::_1));
 
         if (max_sync_frames_ > 0) {
             RCLCPP_INFO(this->get_logger(),
@@ -267,6 +278,35 @@ private:
         return std::to_string(ts_10ms) + ext;
     }
 
+    void on_inspva(beidou_ins_driver::msg::Inspva::ConstSharedPtr msg)
+    {
+        std::lock_guard<std::mutex> lock(inspva_mutex_);
+        inspva_buffer_.push_back(msg);
+        if (inspva_buffer_.size() > 200) {
+            inspva_buffer_.pop_front();
+        }
+    }
+
+    beidou_ins_driver::msg::Inspva::ConstSharedPtr find_nearest_inspva(const rclcpp::Time &target_time)
+    {
+        std::lock_guard<std::mutex> lock(inspva_mutex_);
+        if (inspva_buffer_.empty()) return nullptr;
+
+        double target_sec = target_time.seconds();
+        beidou_ins_driver::msg::Inspva::ConstSharedPtr nearest = nullptr;
+        double min_diff = std::numeric_limits<double>::max();
+
+        for (const auto &msg : inspva_buffer_) {
+            double t = static_cast<double>(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9;
+            double diff = std::abs(t - target_sec);
+            if (diff < min_diff) {
+                min_diff = diff;
+                nearest = msg;
+            }
+        }
+        return nearest;
+    }
+
     void save_image(const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg,
                     size_t cam_idx, const rclcpp::Time &lidar_time)
     {
@@ -332,6 +372,7 @@ private:
     }
 
     void save_pose(const autoware_localization_msgs::msg::KinematicState::ConstSharedPtr &msg,
+                   const beidou_ins_driver::msg::Inspva::ConstSharedPtr &inspva,
                    const rclcpp::Time &lidar_time)
     {
         fs::path dir = fs::path(output_dir_) / "localization";
@@ -359,9 +400,15 @@ private:
         ofs << "    y: " << pose.orientation.y << "\n";
         ofs << "    z: " << pose.orientation.z << "\n";
         ofs << "  position:\n";
-        ofs << "    x: " << pose.position.x << "\n";
-        ofs << "    y: " << pose.position.y << "\n";
-        ofs << "    z: " << pose.position.z << "\n";
+        if (inspva) {
+            ofs << "    x: " << std::setprecision(17) << inspva->longitude << "\n";
+            ofs << "    y: " << std::setprecision(17) << inspva->latitude << "\n";
+            ofs << "    z: " << std::setprecision(17) << inspva->height << "\n";
+        } else {
+            ofs << "    x: " << pose.position.x << "\n";
+            ofs << "    y: " << pose.position.y << "\n";
+            ofs << "    z: " << pose.position.z << "\n";
+        }
 
         ofs << "posCov:\n";
         for (size_t i = 0; i < 36; ++i) {
@@ -397,6 +444,8 @@ private:
         if (finished_) return;
         if (!ins_db_) return;
 
+        auto inspva = find_nearest_inspva(msg->header.stamp);
+
         int64_t bag_ts_ns = static_cast<int64_t>(msg->header.stamp.sec) * 1000000000LL +
                             static_cast<int64_t>(msg->header.stamp.nanosec);
         double msg_ts_sec = static_cast<double>(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9;
@@ -411,9 +460,15 @@ private:
         sqlite3_bind_int64(odom_stmt_, i++, bag_ts_ns);
         sqlite3_bind_double(odom_stmt_, i++, msg_ts_sec);
         sqlite3_bind_text(odom_stmt_, i++, "$", -1, SQLITE_STATIC);
-        sqlite3_bind_double(odom_stmt_, i++, pose.position.x);
-        sqlite3_bind_double(odom_stmt_, i++, pose.position.y);
-        sqlite3_bind_double(odom_stmt_, i++, pose.position.z);
+        if (inspva) {
+            sqlite3_bind_double(odom_stmt_, i++, inspva->longitude);
+            sqlite3_bind_double(odom_stmt_, i++, inspva->latitude);
+            sqlite3_bind_double(odom_stmt_, i++, inspva->height);
+        } else {
+            sqlite3_bind_double(odom_stmt_, i++, pose.position.x);
+            sqlite3_bind_double(odom_stmt_, i++, pose.position.y);
+            sqlite3_bind_double(odom_stmt_, i++, pose.position.z);
+        }
         sqlite3_bind_double(odom_stmt_, i++, pose.orientation.x);
         sqlite3_bind_double(odom_stmt_, i++, pose.orientation.y);
         sqlite3_bind_double(odom_stmt_, i++, pose.orientation.z);
@@ -466,13 +521,18 @@ private:
         }
 
         rclcpp::Time lidar_time = lidar->header.stamp;
+        auto inspva = find_nearest_inspva(lidar_time);
+        if (!inspva) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                "No inspva message available for synced frame yet.");
+        }
         std::array<sensor_msgs::msg::CompressedImage::ConstSharedPtr, kNumCameras> imgs{
             cam0, cam1, cam2, cam3, cam4, cam5};
         for (size_t i = 0; i < kNumCameras; ++i) {
             save_image(imgs[i], i, lidar_time);
         }
         save_cloud(lidar);
-        save_pose(kinematic_state, lidar_time);
+        save_pose(kinematic_state, inspva, lidar_time);
         ++sync_frame_count_;
         RCLCPP_INFO(this->get_logger(), "Saved synced frame %d/%d at ts=%s",
                     sync_frame_count_, max_sync_frames_ > 0 ? max_sync_frames_ : sync_frame_count_,
@@ -498,6 +558,10 @@ private:
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
     rclcpp::Subscription<autoware_localization_msgs::msg::KinematicState>::SharedPtr ins_sub_;
+    rclcpp::Subscription<beidou_ins_driver::msg::Inspva>::SharedPtr inspva_sub_;
+
+    std::deque<beidou_ins_driver::msg::Inspva::ConstSharedPtr> inspva_buffer_;
+    std::mutex inspva_mutex_;
 
     sqlite3 *ins_db_{nullptr};
     sqlite3_stmt *odom_stmt_{nullptr};

@@ -30,6 +30,11 @@ def generate_launch_description():
             description='定位状态 topic'
         ),
         DeclareLaunchArgument(
+            'inspva_topic',
+            default_value='/beidou/inspva',
+            description='北斗 INS Inspva topic（提供 WGS84 经纬高）'
+        ),
+        DeclareLaunchArgument(
             'queue_size',
             default_value='20',
             description='message_filters 同步缓存深度'
@@ -50,6 +55,7 @@ def generate_launch_description():
                 'calib_dir': LaunchConfiguration('calib_dir'),
                 'lidar_topic': LaunchConfiguration('lidar_topic'),
                 'kinematic_state_topic': LaunchConfiguration('kinematic_state_topic'),
+                'inspva_topic': LaunchConfiguration('inspva_topic'),
                 'queue_size': LaunchConfiguration('queue_size'),
                 'max_sync_frames': LaunchConfiguration('max_sync_frames'),
             }]
