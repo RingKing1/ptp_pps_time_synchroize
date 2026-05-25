@@ -57,6 +57,57 @@ def parse_intrinsic_json(filepath: Path) -> tuple:
     return data.get('intrinsic', []), data.get('distortion', [])
 
 
+def parse_intrinsic_txt(filepath: Path) -> tuple:
+    """从 intrinsic TXT 中读 K (9) 和 D (8)。
+
+    格式示例：
+        SN码:H60FA-G12221669
+        FX:1950.2933412435
+        FY:1950.1008224996
+        CX:953.5413262951
+        CY:543.0735017008
+        K1:35.5988436352
+        K2:60.6725471701
+        P1:-0.0000134649
+        P2:0.0000713496
+        K3:6.5825207363
+        K4:36.1637560345
+        K5:80.1604550530
+        K6:38.9128048330
+        RMS:0.0047
+        ...
+
+    返回 (intrinsic[9], distortion[8])，其中 distortion 顺序为 OpenCV 8-param：
+        [k1, k2, p1, p2, k3, k4, k5, k6]
+    """
+    vals = {}
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or ':' not in line:
+                continue
+            key, _, value = line.partition(':')
+            key = key.strip().upper()
+            value = value.strip()
+            if value:
+                try:
+                    vals[key] = float(value)
+                except ValueError:
+                    pass
+
+    fx = vals['FX']
+    fy = vals['FY']
+    cx = vals['CX']
+    cy = vals['CY']
+    intrinsic = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
+
+    distortion = [
+        vals['K1'], vals['K2'], vals['P1'], vals['P2'],
+        vals['K3'], vals['K4'], vals['K5'], vals['K6']
+    ]
+    return intrinsic, distortion
+
+
 def write_camera_calib(sample_dir: Path, base_dir: Path, cameras_cfg: list) -> None:
     out_dir = sample_dir / 'calib' / 'camera'
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -74,7 +125,10 @@ def write_camera_calib(sample_dir: Path, base_dir: Path, cameras_cfg: list) -> N
         print(f"  extrinsic : {extrinsic_path}")
 
         extrinsic = parse_extrinsic_txt(extrinsic_path)
-        intrinsic, distortion = parse_intrinsic_json(intrinsic_path)
+        if intrinsic_path.suffix.lower() == '.txt':
+            intrinsic, distortion = parse_intrinsic_txt(intrinsic_path)
+        else:
+            intrinsic, distortion = parse_intrinsic_json(intrinsic_path)
         translation = [extrinsic[3], extrinsic[7], extrinsic[11]]
 
         result = {

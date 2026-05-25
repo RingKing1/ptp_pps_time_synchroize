@@ -4,30 +4,30 @@
 cameras:
   - name: camera_0_front100
     topic: /cam5/compressed
-    intrinsic_file: camera_1_front100.json
+    intrinsic_file: H120H-F10070537f.txt
     extrinsic_file: extrinsics_LDR_CENTER_to_cam_front.txt
 
   - name: camera_3_left_front
     topic: /cam2/compressed
-    intrinsic_file: camera_2_left_front.json
+    intrinsic_file: H100F1A-H01220711lf.txt
     extrinsic_file: extrinsics_LDR_CENTER_to_cam_left_front.txt
 
   - name: camera_4_right_front
     topic: /cam1/compressed
-    intrinsic_file: camera_3_right_front.json
+    intrinsic_file: H100F1A-H01220708rf.txt
     extrinsic_file: extrinsics_LDR_CENTER_to_cam_right_front.txt
 
   - name: camera_5_back
     topic: /cam4/compressed
-    intrinsic_file: camera_4_back.json
+    intrinsic_file: H60FA-G12221669b.txt
     extrinsic_file: extrinsics_LDR_CENTER_to_cam_back.txt
 
   - name: camera_6_left_back
     topic: /cam3/compressed
-    intrinsic_file: camera_5_left_back.json
+    intrinsic_file: H100F1A-H01220684lb.txt
     extrinsic_file: extrinsics_LDR_CENTER_to_cam_left_back.txt
 
   - name: camera_7_right_back
     topic: /cam0/compressed
-    intrinsic_file: camera_6_right_back.json
+    intrinsic_file: H100F1A-H01220681rb.txt
     extrinsic_file: extrinsics_LDR_CENTER_to_cam_right_back.txt
