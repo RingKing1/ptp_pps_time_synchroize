@@ -17,7 +17,11 @@ find_package(autoware_localization_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(SQLite3 REQUIRED)
 
-add_executable(sync_export_node src/sync_export_node.cpp)
+add_executable(sync_export_node
+  src/sync_export_node.cpp
+  src/utm/utm.c
+  src/utm/tranmerc.c
+)
 
 ament_target_dependencies(sync_export_node
   rclcpp

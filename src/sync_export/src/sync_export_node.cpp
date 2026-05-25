@@ -16,12 +16,44 @@
 #include <sstream>
 #include <iomanip>
 #include <array>
+#include <cmath>
+#include "utm/utm.h"
 
 namespace fs = std::filesystem;
 
 namespace {
 
 constexpr size_t kNumCameras = 6;
+
+// 局部坐标系原点（UTM Zone 50N）
+constexpr double kOriginEasting  = 630224.5820145458;
+constexpr double kOriginNorthing = 3480549.440772983;
+constexpr double kOriginHeight   = 10.31984695419669;
+constexpr long   kUtmZone        = 50;
+constexpr char   kUtmHemisphere  = 'N';
+
+/**
+ * 将局部ENU平面坐标转换为WGS84经纬高。
+ * 局部坐标系原点的UTM坐标为 (kOriginEasting, kOriginNorthing, kOriginHeight)。
+ */
+bool local_to_wgs84(double local_x, double local_y, double local_z,
+                    double &out_longitude, double &out_latitude, double &out_height)
+{
+    double utm_e  = local_x + kOriginEasting;
+    double utm_n  = local_y + kOriginNorthing;
+    double height = local_z + kOriginHeight;
+
+    double lat_rad = 0.0;
+    double lon_rad = 0.0;
+    long ret = Convert_UTM_To_Geodetic(kUtmZone, kUtmHemisphere, utm_e, utm_n, &lat_rad, &lon_rad);
+    if (ret != UTM_NO_ERROR) {
+        return false;
+    }
+    out_latitude  = lat_rad * 180.0 / M_PI;
+    out_longitude = lon_rad * 180.0 / M_PI;
+    out_height    = height;
+    return true;
+}
 
 struct CameraEntry {
     std::string name;
@@ -352,6 +384,17 @@ private:
         ofs << "consistencyToMap: 1.0\n";
 
         const auto &pose = msg->pose_with_covariance.pose;
+        double wgs84_lon = 0.0, wgs84_lat = 0.0, wgs84_h = 0.0;
+        if (!local_to_wgs84(pose.position.x, pose.position.y, pose.position.z,
+                            wgs84_lon, wgs84_lat, wgs84_h)) {
+            RCLCPP_WARN(this->get_logger(), "local_to_wgs84 failed for pose at ts=%.3f",
+                        timestamp_sec);
+            // 转换失败时回退到原始局部坐标
+            wgs84_lon = pose.position.x;
+            wgs84_lat = pose.position.y;
+            wgs84_h   = pose.position.z;
+        }
+
         ofs << "pose:\n";
         ofs << "  orientation:\n";
         ofs << "    w: " << std::setprecision(17) << pose.orientation.w << "\n";
@@ -359,9 +402,9 @@ private:
         ofs << "    y: " << pose.orientation.y << "\n";
         ofs << "    z: " << pose.orientation.z << "\n";
         ofs << "  position:\n";
-        ofs << "    x: " << pose.position.x << "\n";
-        ofs << "    y: " << pose.position.y << "\n";
-        ofs << "    z: " << pose.position.z << "\n";
+        ofs << "    x: " << std::setprecision(17) << wgs84_lon << "\n";
+        ofs << "    y: " << std::setprecision(17) << wgs84_lat << "\n";
+        ofs << "    z: " << std::setprecision(17) << wgs84_h << "\n";
 
         ofs << "posCov:\n";
         for (size_t i = 0; i < 36; ++i) {
@@ -405,15 +448,25 @@ private:
         const auto &twist = msg->twist_with_covariance.twist;
         const auto &accel = msg->accel_with_covariance.accel;
 
+        double wgs84_lon = 0.0, wgs84_lat = 0.0, wgs84_h = 0.0;
+        if (!local_to_wgs84(pose.position.x, pose.position.y, pose.position.z,
+                            wgs84_lon, wgs84_lat, wgs84_h)) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                "local_to_wgs84 failed for INS pose");
+            wgs84_lon = pose.position.x;
+            wgs84_lat = pose.position.y;
+            wgs84_h   = pose.position.z;
+        }
+
         // t_export_odometry
         sqlite3_reset(odom_stmt_);
         int i = 1;
         sqlite3_bind_int64(odom_stmt_, i++, bag_ts_ns);
         sqlite3_bind_double(odom_stmt_, i++, msg_ts_sec);
         sqlite3_bind_text(odom_stmt_, i++, "$", -1, SQLITE_STATIC);
-        sqlite3_bind_double(odom_stmt_, i++, pose.position.x);
-        sqlite3_bind_double(odom_stmt_, i++, pose.position.y);
-        sqlite3_bind_double(odom_stmt_, i++, pose.position.z);
+        sqlite3_bind_double(odom_stmt_, i++, wgs84_lon);
+        sqlite3_bind_double(odom_stmt_, i++, wgs84_lat);
+        sqlite3_bind_double(odom_stmt_, i++, wgs84_h);
         sqlite3_bind_double(odom_stmt_, i++, pose.orientation.x);
         sqlite3_bind_double(odom_stmt_, i++, pose.orientation.y);
         sqlite3_bind_double(odom_stmt_, i++, pose.orientation.z);
