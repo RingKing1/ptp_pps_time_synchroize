@@ -78,8 +78,10 @@ public:
         this->declare_parameter<std::string>("lidar_topic", "/rslidar_points");
         this->declare_parameter<std::string>("kinematic_state_topic", "/localization/kinematicstate");
         this->declare_parameter<std::string>("inspva_topic", "/beidou/inspva");
+        this->declare_parameter<bool>("enable_undistort", true);
 
         this->get_parameter("output_dir", output_dir_);
+        enable_undistort_ = this->get_parameter("enable_undistort").as_bool();
         std::string cameras_config;
         this->get_parameter("cameras_config", cameras_config);
         this->get_parameter("calib_dir", calib_dir_);
@@ -132,14 +134,15 @@ public:
             inspva_topic, rclcpp::SensorDataQoS().keep_last(200),
             std::bind(&SyncExportNode::on_inspva, this, std::placeholders::_1));
 
+        const char* undistort_str = enable_undistort_ ? "enabled" : "disabled";
         if (max_sync_frames_ > 0) {
             RCLCPP_INFO(this->get_logger(),
-                "SyncExportNode started, output_dir=%s, cameras=%zu, max_sync_frames=%d",
-                output_dir_.c_str(), cameras_.size(), max_sync_frames_);
+                "SyncExportNode started, output_dir=%s, cameras=%zu, max_sync_frames=%d, undistort=%s",
+                output_dir_.c_str(), cameras_.size(), max_sync_frames_, undistort_str);
         } else {
             RCLCPP_INFO(this->get_logger(),
-                "SyncExportNode started, output_dir=%s, cameras=%zu (no frame limit)",
-                output_dir_.c_str(), cameras_.size());
+                "SyncExportNode started, output_dir=%s, cameras=%zu (no frame limit), undistort=%s",
+                output_dir_.c_str(), cameras_.size(), undistort_str);
         }
     }
 
@@ -337,22 +340,23 @@ private:
             return;
         }
 
-        if (!maps_initialized_[cam_idx]) {
-            cv::initUndistortRectifyMap(
-                K_[cam_idx], D_[cam_idx],
-                cv::Mat(), K_[cam_idx],
-                raw.size(), CV_16SC2,
-                map1_[cam_idx], map2_[cam_idx]);
-            maps_initialized_[cam_idx] = true;
-            RCLCPP_INFO(this->get_logger(), "[%s] undistort map initialized for %dx%d",
-                        cameras_[cam_idx].name.c_str(), raw.cols, raw.rows);
+        cv::Mat out_img = raw;
+        if (enable_undistort_) {
+            if (!maps_initialized_[cam_idx]) {
+                cv::initUndistortRectifyMap(
+                    K_[cam_idx], D_[cam_idx],
+                    cv::Mat(), K_[cam_idx],
+                    raw.size(), CV_16SC2,
+                    map1_[cam_idx], map2_[cam_idx]);
+                maps_initialized_[cam_idx] = true;
+                RCLCPP_INFO(this->get_logger(), "[%s] undistort map initialized for %dx%d",
+                            cameras_[cam_idx].name.c_str(), raw.cols, raw.rows);
+            }
+            cv::remap(raw, out_img, map1_[cam_idx], map2_[cam_idx], cv::INTER_LINEAR);
         }
 
-        cv::Mat undistorted;
-        cv::remap(raw, undistorted, map1_[cam_idx], map2_[cam_idx], cv::INTER_LINEAR);
-
         std::vector<uchar> buf;
-        cv::imencode(".jpg", undistorted, buf);
+        cv::imencode(".jpg", out_img, buf);
 
         fs::path dir = fs::path(output_dir_) / "camera" / cameras_[cam_idx].name;
         std::string filename = (dir / generate_filename(lidar_time, ".jpg")).string();
@@ -578,6 +582,7 @@ private:
     int max_sync_frames_{0};
     int sync_frame_count_{0};
     bool finished_{false};
+    bool enable_undistort_{true};
 
     std::array<cv::Mat, kNumCameras> K_;
     std::array<cv::Mat, kNumCameras> D_;

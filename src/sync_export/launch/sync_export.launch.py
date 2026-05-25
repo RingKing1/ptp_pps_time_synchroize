@@ -44,6 +44,11 @@ def generate_launch_description():
             default_value='0',
             description='最大同步导出帧数，0 表示无限制'
         ),
+        DeclareLaunchArgument(
+            'enable_undistort',
+            default_value='true',
+            description='是否对相机图像进行去畸变处理'
+        ),
         Node(
             package="sync_export",
             executable="sync_export_node",
@@ -58,6 +63,7 @@ def generate_launch_description():
                 'inspva_topic': LaunchConfiguration('inspva_topic'),
                 'queue_size': LaunchConfiguration('queue_size'),
                 'max_sync_frames': LaunchConfiguration('max_sync_frames'),
+                'enable_undistort': LaunchConfiguration('enable_undistort'),
             }]
         )
     ])

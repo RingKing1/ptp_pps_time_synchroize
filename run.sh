@@ -12,24 +12,27 @@ set -e
 # =============================================================================
 #
 # 用法:
-#   ./run.sh <output_folder_name> <rosbag_path> [--max-sync-frames N]
+#   ./run.sh <output_folder_name> <rosbag_path> [--max-sync-frames N] [--no-undistort]
 #
 # 示例:
 #   ./run.sh scene1 data/rosbag2_2026_04_27-16_44_35
 #   ./run.sh scene1 data/rosbag2_2026_04_27-16_44_35 --max-sync-frames 1000
+#   ./run.sh scene1 data/rosbag2_2026_04_27-16_44_35 --no-undistort
 # =============================================================================
 
 if [ $# -lt 2 ]; then
-    echo "Usage: $0 <output_folder_name> <rosbag_path> [--max-sync-frames N]"
+    echo "Usage: $0 <output_folder_name> <rosbag_path> [--max-sync-frames N] [--no-undistort]"
     echo ""
     echo "Arguments:"
     echo "  output_folder_name   导出 sample 文件夹（zip 时即样本名）"
     echo "  rosbag_path          rosbag 文件夹路径"
     echo "  --max-sync-frames N  最大同步帧数（默认 0 = 无限制）"
+    echo "  --no-undistort       关闭相机图像去畸变（默认开启）"
     echo ""
     echo "Examples:"
     echo "  $0 scene1 data/rosbag2_2026_04_27-16_44_35"
     echo "  $0 scene1 data/rosbag2_2026_04_27-16_44_35 --max-sync-frames 1000"
+    echo "  $0 scene1 data/rosbag2_2026_04_27-16_44_35 --no-undistort"
     exit 1
 fi
 
@@ -38,11 +41,16 @@ BAG_PATH="$2"
 shift 2
 
 MAX_SYNC_FRAMES=0
+ENABLE_UNDISTORT="true"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --max-sync-frames)
             MAX_SYNC_FRAMES="$2"
             shift 2
+            ;;
+        --no-undistort)
+            ENABLE_UNDISTORT="false"
+            shift
             ;;
         *)
             echo "Unknown option: $1"
@@ -127,6 +135,7 @@ if [ "${MAX_SYNC_FRAMES}" -gt 0 ]; then
 else
     echo "Max sync frames:   unlimited"
 fi
+echo "Undistort:         ${ENABLE_UNDISTORT}"
 echo "=========================================="
 
 # ---------------------------------------------------------------------------
@@ -142,7 +151,8 @@ xterm -title "Sync Export" -fa "Monospace" -fs 10 \
             output_dir:='${OUTPUT_ABS_DIR}' \
             cameras_config:='${CAMERAS_CONFIG}' \
             calib_dir:='${CALIB_DIR}' \
-            max_sync_frames:='${MAX_SYNC_FRAMES}'
+            max_sync_frames:='${MAX_SYNC_FRAMES}' \
+            enable_undistort:='${ENABLE_UNDISTORT}'
     " &
 SYNC_PID=$!
 
