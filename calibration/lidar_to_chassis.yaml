@@ -2,9 +2,9 @@
 # 请填入真实数值后，由 convert_calibration.py 转写为规范要求的
 # <output>/calib/lidar/Lidarbase_to_Chassis.yaml
 translation:
-  x: 0.0
+  x: 0.5
   y: 0.0
-  z: 0.0
+  z: 1.45
 quaternion:
   qw: 1.0
   qx: 0.0

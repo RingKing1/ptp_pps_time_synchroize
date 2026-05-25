@@ -111,22 +111,21 @@ public:
             cam_subs_[i].subscribe(this, cameras_[i].topic);
         }
         sub_lidar_.subscribe(this, lidar_topic);
-        sub_ks_.subscribe(this, ks_topic);
 
         sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(
             SyncPolicy(queue_size),
             cam_subs_[0], cam_subs_[1], cam_subs_[2], cam_subs_[3], cam_subs_[4], cam_subs_[5],
-            sub_lidar_, sub_ks_);
+            sub_lidar_);
 
         sync_->registerCallback(std::bind(&SyncExportNode::callback, this,
             std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
             std::placeholders::_4, std::placeholders::_5, std::placeholders::_6,
-            std::placeholders::_7, std::placeholders::_8));
+            std::placeholders::_7));
 
-        // INS sqlite3 写入用独立订阅器，保持原始高频，不被同步降采
-        ins_sub_ = this->create_subscription<autoware_localization_msgs::msg::KinematicState>(
+        // kinematicstate 独立高频订阅，避免加入 8 输入同步导致 ApproximateTime 死锁
+        ks_sub_ = this->create_subscription<autoware_localization_msgs::msg::KinematicState>(
             ks_topic, rclcpp::SensorDataQoS().keep_last(200),
-            std::bind(&SyncExportNode::on_kinematic_state_for_ins, this, std::placeholders::_1));
+            std::bind(&SyncExportNode::on_kinematic_state, this, std::placeholders::_1));
 
         // inspva 独立订阅，用于提供 WGS84 经纬高
         inspva_sub_ = this->create_subscription<beidou_ins_driver::msg::Inspva>(
@@ -165,8 +164,7 @@ private:
         sensor_msgs::msg::CompressedImage,
         sensor_msgs::msg::CompressedImage,
         sensor_msgs::msg::CompressedImage,
-        sensor_msgs::msg::PointCloud2,
-        autoware_localization_msgs::msg::KinematicState>;
+        sensor_msgs::msg::PointCloud2>;
 
     void load_cameras_config(const std::string &path)
     {
@@ -297,6 +295,26 @@ private:
         double min_diff = std::numeric_limits<double>::max();
 
         for (const auto &msg : inspva_buffer_) {
+            double t = static_cast<double>(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9;
+            double diff = std::abs(t - target_sec);
+            if (diff < min_diff) {
+                min_diff = diff;
+                nearest = msg;
+            }
+        }
+        return nearest;
+    }
+
+    autoware_localization_msgs::msg::KinematicState::ConstSharedPtr find_nearest_kinematic_state(const rclcpp::Time &target_time)
+    {
+        std::lock_guard<std::mutex> lock(ks_mutex_);
+        if (ks_buffer_.empty()) return nullptr;
+
+        double target_sec = target_time.seconds();
+        autoware_localization_msgs::msg::KinematicState::ConstSharedPtr nearest = nullptr;
+        double min_diff = std::numeric_limits<double>::max();
+
+        for (const auto &msg : ks_buffer_) {
             double t = static_cast<double>(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9;
             double diff = std::abs(t - target_sec);
             if (diff < min_diff) {
@@ -439,10 +457,19 @@ private:
         ofs.close();
     }
 
-    void on_kinematic_state_for_ins(autoware_localization_msgs::msg::KinematicState::ConstSharedPtr msg)
+    void on_kinematic_state(autoware_localization_msgs::msg::KinematicState::ConstSharedPtr msg)
     {
-        if (finished_) return;
-        if (!ins_db_) return;
+        // 缓存到 ring buffer，供 save_pose 时间最近查找
+        {
+            std::lock_guard<std::mutex> lock(ks_mutex_);
+            ks_buffer_.push_back(msg);
+            if (ks_buffer_.size() > 200) {
+                ks_buffer_.pop_front();
+            }
+        }
+
+        // INS sqlite3 写入（保持原始高频）
+        if (finished_ || !ins_db_) return;
 
         auto inspva = find_nearest_inspva(msg->header.stamp);
 
@@ -508,8 +535,7 @@ private:
                   const sensor_msgs::msg::CompressedImage::ConstSharedPtr &cam3,
                   const sensor_msgs::msg::CompressedImage::ConstSharedPtr &cam4,
                   const sensor_msgs::msg::CompressedImage::ConstSharedPtr &cam5,
-                  const sensor_msgs::msg::PointCloud2::ConstSharedPtr &lidar,
-                  const autoware_localization_msgs::msg::KinematicState::ConstSharedPtr &kinematic_state)
+                  const sensor_msgs::msg::PointCloud2::ConstSharedPtr &lidar)
     {
         if (finished_) return;
         if (max_sync_frames_ > 0 && sync_frame_count_ >= max_sync_frames_) {
@@ -522,9 +548,14 @@ private:
 
         rclcpp::Time lidar_time = lidar->header.stamp;
         auto inspva = find_nearest_inspva(lidar_time);
+        auto ks = find_nearest_kinematic_state(lidar_time);
         if (!inspva) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
                 "No inspva message available for synced frame yet.");
+        }
+        if (!ks) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                "No kinematic_state message available for synced frame yet.");
         }
         std::array<sensor_msgs::msg::CompressedImage::ConstSharedPtr, kNumCameras> imgs{
             cam0, cam1, cam2, cam3, cam4, cam5};
@@ -532,7 +563,9 @@ private:
             save_image(imgs[i], i, lidar_time);
         }
         save_cloud(lidar);
-        save_pose(kinematic_state, inspva, lidar_time);
+        if (ks) {
+            save_pose(ks, inspva, lidar_time);
+        }
         ++sync_frame_count_;
         RCLCPP_INFO(this->get_logger(), "Saved synced frame %d/%d at ts=%s",
                     sync_frame_count_, max_sync_frames_ > 0 ? max_sync_frames_ : sync_frame_count_,
@@ -554,12 +587,13 @@ private:
 
     std::array<message_filters::Subscriber<sensor_msgs::msg::CompressedImage>, kNumCameras> cam_subs_;
     message_filters::Subscriber<sensor_msgs::msg::PointCloud2> sub_lidar_;
-    message_filters::Subscriber<autoware_localization_msgs::msg::KinematicState> sub_ks_;
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
-    rclcpp::Subscription<autoware_localization_msgs::msg::KinematicState>::SharedPtr ins_sub_;
+    rclcpp::Subscription<autoware_localization_msgs::msg::KinematicState>::SharedPtr ks_sub_;
     rclcpp::Subscription<beidou_ins_driver::msg::Inspva>::SharedPtr inspva_sub_;
 
+    std::deque<autoware_localization_msgs::msg::KinematicState::ConstSharedPtr> ks_buffer_;
+    std::mutex ks_mutex_;
     std::deque<beidou_ins_driver::msg::Inspva::ConstSharedPtr> inspva_buffer_;
     std::mutex inspva_mutex_;
 

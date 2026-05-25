@@ -19,6 +19,7 @@ find_package(yaml-cpp REQUIRED)
 find_package(SQLite3 REQUIRED)
 
 add_executable(sync_export_node src/sync_export_node.cpp)
+add_executable(test_sync_node src/test_sync_node.cpp)
 
 ament_target_dependencies(sync_export_node
   rclcpp
@@ -28,6 +29,12 @@ ament_target_dependencies(sync_export_node
   pcl_conversions
   autoware_localization_msgs
   beidou_ins_driver
+)
+ament_target_dependencies(test_sync_node
+  rclcpp
+  sensor_msgs
+  message_filters
+  autoware_localization_msgs
 )
 
 target_include_directories(sync_export_node PUBLIC
@@ -42,8 +49,9 @@ target_link_libraries(sync_export_node
   yaml-cpp
   ${SQLite3_LIBRARIES}
 )
+target_link_libraries(test_sync_node yaml-cpp)
 
-install(TARGETS sync_export_node
+install(TARGETS sync_export_node test_sync_node
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch/
