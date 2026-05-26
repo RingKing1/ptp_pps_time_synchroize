@@ -35,6 +35,7 @@ ament_target_dependencies(test_sync_node
   sensor_msgs
   message_filters
   autoware_localization_msgs
+  beidou_ins_driver
 )
 
 target_include_directories(sync_export_node PUBLIC

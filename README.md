@@ -194,6 +194,7 @@ ros2 bag play data/rosbag2_2026_04_27-16_44_35 --rate 0.4
 │   └── cameras.yaml                     # topic -> 规范名映射
 ├── convert_calibration.py               # 生成规范 calib/ 目录（支持8参数TXT）
 ├── run.sh                               # 一键运行脚本
+├── run_test_sync.sh                     # 时间同步调试脚本
 ├── data/                                # rosbag 数据
 ├── claude.md                            # 项目文档
 ├── src/
@@ -210,6 +211,45 @@ ros2 bag play data/rosbag2_2026_04_27-16_44_35 --rate 0.4
 │           └── test_sync_node.cpp       # 同步测试节点
 └── README.md
 ```
+
+## 时间同步调试工具
+
+`test_sync_node` 是一个轻量的时间同步调试节点，用于实时查看各传感器与雷达之间的时间偏差。它同样使用 `ApproximateTime` 对 6 路相机 + 1 路雷达做同步，同时独立订阅 `kinematicstate` 和 `inspva`，在每帧同步回调中打印各传感器与雷达的时间差。
+
+### 输出示例
+
+```
+[SYNC #0] lidar=1737428250.100s | cam0=12.3ms cam1=-8.7ms cam2=5.1ms cam3=15.2ms cam4=-3.4ms cam5=7.8ms | ks=2.1ms inspva=45.6ms
+```
+
+- 正数表示该传感器时间戳**晚于**雷达（传感器数据比雷达晚到）
+- 负数表示该传感器时间戳**早于**雷达
+- `-999.0ms` 表示该时刻缓冲区中无对应数据
+
+### 运行方法
+
+```bash
+# 使用便捷脚本
+./run_test_sync.sh data/rosbag2_2026_04_27-16_44_35
+
+# 可指定播放速率
+./run_test_sync.sh data/rosbag2_2026_04_27-16_44_35 --rate 1.0
+```
+
+该脚本自动完成：
+1. 启动 `test_sync_node`（加载 `config/cameras.yaml`）
+2. 延迟 5s 后播放 rosbag
+3. 任一方退出后自动关闭另一方
+
+### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `cameras_config` | string | - | `config/cameras.yaml` 路径 |
+| `lidar_topic` | string | `/rslidar_points` | 激光雷达话题 |
+| `kinematic_state_topic` | string | `/localization/kinematicstate` | 定位话题 |
+| `inspva_topic` | string | `/beidou/inspva` | 北斗 INS WGS84 话题 |
+| `queue_size` | int | `20` | 同步缓存深度 |
 
 ## 注意事项
 
